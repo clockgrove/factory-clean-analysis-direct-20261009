@@ -1,0 +1,17 @@
+{
+  "name": "synthetic-support-incident-explorer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "seed": "node data/generate.mjs",
+    "pretest": "node scripts/prepare.mjs",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "playwright": "1.64.0"
+  }
+}
