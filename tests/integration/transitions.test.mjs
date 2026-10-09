@@ -43,3 +43,31 @@ test('detail replacement/failure/retry and closing invalidate old data, errors a
   for (const type of ['detail:success', 'detail:failure', 'detail:finish']) assert.equal(send(state, type, {token: closedToken, data: rows[1], error: 'old'}), state);
   assert.equal(state.result, result); assert.equal(state.intent, intent); assert.equal(state.detail.id, null);
 });
+
+test('address navigation supersedes all writers, failure and late cleanup; retry and clamp own restored page', () => {
+  let state = send(createState(), 'result:start');
+  state = send(state, 'result:success', {token: state.resultOp.token, data: data({})});
+  const snapshot = state.result;
+  state = send(state, 'detail:select', {id: rows[0].id}); state = send(state, 'detail:start');
+  state = send(state, 'export:start'); state = send(state, 'result:start');
+  const tokens = {result: state.resultOp.token, detail: state.detail.token, export: state.exportOp.token};
+  state = send(state, 'address', {intent: {q: 'Billing', page: 3}});
+  assert.equal(state.intent.page, 3); assert.equal(state.detail.id, null);
+  assert.equal(state.result, snapshot);
+  state = send(state, 'result:start');
+  for (const operation of ['result', 'detail', 'export']) for (const ending of ['success', 'failure', 'finish']) {
+    assert.equal(send(state, `${operation}:${ending}`, {token: tokens[operation], data: data({}), error: 'obsolete'}), state);
+  }
+  const failed = state.resultOp.token;
+  state = send(state, 'result:failure', {token: failed, error: 'restored failure'});
+  assert.equal(announcement(state), 'restored failure');
+  state = send(state, 'result:start');
+  assert.equal(queryParams(state.intent).get('page'), '3');
+  assert.equal(send(state, 'result:finish', {token: failed}), state);
+  state = send(state, 'address', {intent: {q: 'Search', page: 2}});
+  assert.equal(state.resultOp.error, null); assert.equal(state.exportOp.error, null);
+  state = send(state, 'result:start');
+  state = send(state, 'result:success', {token: state.resultOp.token, data: data({q: 'Search'})});
+  assert.equal(state.intent.page, 1); assert.deepEqual(state.result.data.summary, expected({q: 'Search'}).summary);
+  assert.equal(state.result.intent, state.intent);
+});

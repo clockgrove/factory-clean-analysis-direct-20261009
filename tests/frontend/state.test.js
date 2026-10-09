@@ -117,3 +117,23 @@ test('export retry invalidates prior writers and retains the current filter and 
   assert.equal(queryParams(s.intent, {pagination: false}).get('q'), 'CSV');
   assert.equal(queryParams(s.intent, {pagination: false}).get('sort'), 'severity');
 });
+
+test('addresses normalize singleton ambiguity, real UTC dates, numbers and literal repeated facets', async () => {
+  const {addressIntent, normalizeIntent, defaults} = await import('../../public/state.js');
+  assert.deepEqual(addressIntent(new URLSearchParams()), defaults);
+  for (const field of ['q', 'from', 'to', 'sort', 'direction', 'page', 'pageSize']) {
+    const params = new URLSearchParams(`${field}=50&${field}=50`);
+    assert.equal(addressIntent(params)[field], defaults[field]);
+  }
+  for (const date of ['2026-02-29', '2026-04-31', '1900-02-29', '2026-13-01', 'garbage']) {
+    assert.equal(normalizeIntent({from: date}).from, '');
+    assert.equal(queryParams({to: date}).has('to'), false);
+  }
+  for (const date of ['2000-02-29', '2024-02-29', '0000-02-29']) assert.equal(normalizeIntent({from: date}).from, date);
+  assert.equal(queryParams({from: '2026-06-01', to: '2026-04-01'}).has('from'), false);
+  for (const page of ['0', '-1', '1.5', '1e2', '01', '9007199254740992', 'Infinity']) assert.equal(addressIntent(new URLSearchParams({page})).page, 1);
+  for (const pageSize of ['100', '5e1', '050', '50.0']) assert.equal(addressIntent(new URLSearchParams({pageSize})).pageSize, 25);
+  const intent = normalizeIntent({q: 'a+b & % # / café 雪', service: ['Search', 'Billing', 'Search', 'bad'], status: ['resolved', 'open'], severity: ['high', 'critical'], from: '2026-04-01', to: '2026-06-29', sort: 'severity', direction: 'asc', page: 3, pageSize: 50});
+  assert.deepEqual(addressIntent(queryParams(intent)), intent);
+  assert.equal(transition(createState(), {type: 'intent', patch: {q: ''}}).resultOp.token, 0);
+});

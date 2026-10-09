@@ -1,11 +1,15 @@
-import {createState, transition, queryParams, savedView, announcement, isResultCurrent, canPaginate} from './state.js';
+import {createState, transition, queryParams, savedView, announcement, isResultCurrent, canPaginate, addressIntent} from './state.js';
 
 const $ = id => document.getElementById(id);
 const node = (tag, text, className) => { const element = document.createElement(tag); if (text !== undefined) element.textContent = text; if (className) element.className = className; return element; };
 const human = value => String(value).replaceAll('_', ' ');
 const utc = value => value ? new Date(value).toISOString().replace('T', ' ').replace('.000Z', ' UTC') : 'Not resolved';
 const facets = {service: ['Accounts', 'Billing', 'Search', 'Uploads', 'Notifications', 'Integrations'], status: ['open', 'in_progress', 'resolved'], severity: ['critical', 'high', 'medium', 'low']};
-let state = createState();
+let state = transition(createState(), {type: 'address', intent: addressIntent(new URLSearchParams(location.search))});
+function writeAddress(method) {
+  history[method](null, '', `${location.pathname}?${queryParams(state.intent)}${location.hash}`);
+}
+writeAddress('replaceState');
 let resultController, detailController, exportController;
 let returnIncident = null, returnElement = null;
 let renderedResult, renderedBlocked, renderedDetail, renderedIntent;
@@ -31,7 +35,10 @@ function change(event) {
   if (next === state) return;
   $('to').setCustomValidity('');
   resultController?.abort(); detailController?.abort(); exportController?.abort();
-  state = next; render(); loadResults();
+  state = next;
+  if (event.type === 'address') { $('search').value = state.intent.q; renderedIntent = undefined; writeAddress('replaceState'); }
+  else writeAddress('pushState');
+  render(); loadResults();
 }
 async function checked(response) {
   if (response.ok) return response;
@@ -48,7 +55,9 @@ async function loadResults() {
   try {
     const response = await checked(await fetch(`/api/incidents?${params}`, {signal: controller.signal}));
     const data = await response.json();
+    const ownsResult = token === state.resultOp.token && state.resultOp.pending;
     dispatch({type: 'result:success', token, data});
+    if (ownsResult) writeAddress('replaceState');
   } catch (error) { if (error.name !== 'AbortError') dispatch({type: 'result:failure', token, error: errorText(error)}); }
   finally { dispatch({type: 'result:finish', token}); }
 }
@@ -211,4 +220,5 @@ $('close-detail').addEventListener('click', closeDetail);
 $('detail').addEventListener('cancel', event => { event.preventDefault(); closeDetail(); });
 $('save-form').addEventListener('submit', event => { event.preventDefault(); const name = $('view-name').value.trim(); if (!name) { $('view-name').setCustomValidity('Enter a view name.'); $('view-name').reportValidity(); return; } views.push({name, view: savedView(state.intent)}); persistViews(); renderViews(); $('view-name').value = ''; });
 $('view-name').addEventListener('input', () => $('view-name').setCustomValidity(''));
+window.addEventListener('popstate', () => change({type: 'address', intent: addressIntent(new URLSearchParams(location.search))}));
 renderViews(); render(); loadResults();

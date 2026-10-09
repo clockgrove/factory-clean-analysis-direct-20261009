@@ -6,12 +6,25 @@ export function normalizeIntent(input = {}) {
   const result = {...defaults};
   result.q = typeof x.q === 'string' ? x.q : '';
   for (const key of Object.keys(values)) result[key] = [...new Set(Array.isArray(x[key]) ? x[key].filter(v => values[key].includes(v)) : [])].sort();
-  for (const key of ['from', 'to']) result[key] = typeof x[key] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x[key]) ? x[key] : '';
+  for (const key of ['from', 'to']) {
+    const value = x[key], time = typeof value === 'string' ? Date.parse(`${value}T00:00:00.000Z`) : NaN;
+    result[key] = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === value ? value : '';
+  }
+  if (result.from && result.to && result.from > result.to) result.from = result.to = '';
   result.sort = x.sort === 'severity' ? 'severity' : 'openedAt';
   result.direction = x.direction === 'asc' ? 'asc' : 'desc';
-  result.pageSize = Number(x.pageSize) === 50 ? 50 : 25;
+  result.pageSize = (x.pageSize === 50 || x.pageSize === '50') ? 50 : 25;
   result.page = Number.isSafeInteger(x.page) && x.page > 0 ? x.page : 1;
   return result;
+}
+export function addressIntent(params) {
+  const input = {};
+  for (const key of Object.keys(defaults)) {
+    const entries = params.getAll(key);
+    if (key in values) input[key] = entries;
+    else if (entries.length === 1) input[key] = key === 'page' ? (/^[1-9]\d*$/.test(entries[0]) ? Number(entries[0]) : 1) : entries[0];
+  }
+  return normalizeIntent(input);
 }
 export function savedView(intent) {
   const {page, ...view} = normalizeIntent(intent);
@@ -36,13 +49,15 @@ export function isResultCurrent(state) {
 export function canPaginate(state) {
   return !state.resultOp.pending && isResultCurrent(state) && state.result.data.totalPages > 0;
 }
-function changeIntent(state, intent) {
+function changeIntent(state, intent, force = true) {
+  if (!force && JSON.stringify(intent) === JSON.stringify(state.intent)) return state;
   return {...state, intent, resultOp: operation(state.resultOp.token + 1), detail: emptyDetail(state.detail.token + 1), exportOp: operation(state.exportOp.token + 1)};
 }
 export function transition(state, event) {
   switch (event.type) {
-    case 'intent': return changeIntent(state, normalizeIntent({...state.intent, ...event.patch, page: 1}));
-    case 'restore': return changeIntent(state, normalizeIntent({...event.view, page: 1}));
+    case 'intent': return changeIntent(state, normalizeIntent({...state.intent, ...event.patch, page: 1}), false);
+    case 'address': return changeIntent(state, normalizeIntent(event.intent));
+    case 'restore': return changeIntent(state, normalizeIntent({...event.view, page: 1}), false);
     case 'page': {
       if (!canPaginate(state) || !Number.isSafeInteger(event.delta)) return state;
       const page = Math.max(1, Math.min(state.result.data.totalPages, state.intent.page + event.delta));
