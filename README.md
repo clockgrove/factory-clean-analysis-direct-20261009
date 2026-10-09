@@ -1,10 +1,31 @@
 # Synthetic support-incident explorer
 
-This is an empty application starter with a deterministic fictional dataset. The application architecture, API, frontend structure, and implementation are deliberately open.
+A local incident explorer for 2,400 fictional support incidents. Search IDs, titles and descriptions; combine service, status, severity and inclusive UTC date filters; inspect complete details; and export the entire matching result. The Node server serves both the browser interface and the read-only HTTP API on loopback.
 
-The qualification environment uses Node.js 24. Run `npm run seed` from this directory to create `.runtime/incidents.json`. The generator requires no packages or network access. Every invocation produces the same bytes. See `data/FIELDS.md` for the record meanings.
+Use Node.js 24. From the checkout directory, generate the canonical dataset and start the application:
 
-Keep `data/generate.mjs` and `data/FIELDS.md` unchanged. The application must treat the generated dataset as read-only. Add application code, useful verification, and startup instructions as needed. The installed browser-verification tooling and its exact command will be documented in the shared execution environment before either route begins; this starter does not claim that a browser is already installed.
+```sh
+npm run seed
+npm run start
+```
+
+Open **http://127.0.0.1:3000**. Stop the foreground application with **Ctrl+C**; the server also handles SIGTERM. To choose another loopback port, use `PORT=3001 npm run start` (on POSIX shells). The application reads `.runtime/incidents.json`; it does not modify incidents. See `data/FIELDS.md` for field meanings.
+
+The initial view has no filters, sorts newest first and displays 25 incidents per page. Multiple choices within one facet match any selected value; different facets and search match together. Sorting, filtering and search reset to the first page. Summary counts and daily chart text cover every matching incident, including later pages. Opening and closing details preserves the results and restores keyboard focus. During requests, previous results are marked as previous and their actions are disabled. A failed request preserves selections; Retry uses the current context.
+
+Saved views remember the search, facets, UTC dates, sort direction and page size, and reopen at page one. They persist in this browser's local storage for the same origin; changing the hostname or port uses a different storage origin. Reloading does not automatically apply a saved view: select its named Open button. Delete removes it from storage. If storage is unavailable, the interface reports that views last only for the current visit. No account or external service is involved.
+
+Download CSV exports all matching incidents in the selected order. The header contains all eleven dataset fields. Null `resolvedAt` values become empty cells; `tags` contains a JSON array of strings. CSV uses CRLF record separators and double-quoted cells with doubled internal quotes where needed, preserving commas, quotes and description line breaks.
+
+For verification in the supplied qualification environment, run these commands in order from this checkout:
+
+```sh
+npm run pretest
+qualification-browser-smoke
+npm test
+```
+
+The preparation command installs the pinned tooling if needed and regenerates/checks the canonical dataset. The smoke probe qualifies real sandbox-enabled Chromium and loopback HTTP only. `npm test` repeats preparation and discovers component and integration tests with Node's built-in runner. Integration tests compare actual HTTP and browser results against an independent oracle built from the canonical data, exercise the startup command, and cover saved views, keyboard and phone layouts, loading, empty results, connection failure/retry and overlapping intent transitions. They start owned loopback servers and close servers, browsers and subprocesses in cleanup paths. The browser suite uses the alias-relative installed browser and library paths described below; profiles, downloads and other runtime evidence stay under ignored `.runtime/`.
 
 ## Exact shared commands
 
