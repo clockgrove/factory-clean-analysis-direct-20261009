@@ -40,8 +40,15 @@ export function queryParams(intent, {pagination = true} = {}) {
 }
 const operation = token => ({token, pending: false, error: null});
 const emptyDetail = token => ({...operation(token), id: null, data: null});
+export function selectionKey(intent) {
+  const {q, service, status, severity, from, to} = normalizeIntent(intent);
+  return JSON.stringify({q, service, status, severity, from, to});
+}
+export function isOverviewCurrent(state) {
+  return !!state.overview && state.overview.key === selectionKey(state.intent);
+}
 export function createState() {
-  return {intent: normalizeIntent(), result: null, resultOp: operation(0), detail: emptyDetail(0), exportOp: operation(0)};
+  return {intent: normalizeIntent(), result: null, resultOp: operation(0), overview: null, overviewOp: operation(0), detail: emptyDetail(0), exportOp: operation(0)};
 }
 export function isResultCurrent(state) {
   return !!state.result && JSON.stringify(state.intent) === JSON.stringify(state.result.intent);
@@ -51,10 +58,20 @@ export function canPaginate(state) {
 }
 function changeIntent(state, intent, force = true) {
   if (!force && JSON.stringify(intent) === JSON.stringify(state.intent)) return state;
-  return {...state, intent, resultOp: operation(state.resultOp.token + 1), detail: emptyDetail(state.detail.token + 1), exportOp: operation(state.exportOp.token + 1)};
+  const overviewOp = selectionKey(intent) === selectionKey(state.intent) ? state.overviewOp : operation(state.overviewOp.token + 1);
+  return {...state, intent, overviewOp, resultOp: operation(state.resultOp.token + 1), detail: emptyDetail(state.detail.token + 1), exportOp: operation(state.exportOp.token + 1)};
 }
 export function transition(state, event) {
   switch (event.type) {
+    case 'overview:start': return {...state, overviewOp: {...operation(state.overviewOp.token + 1), pending: true}};
+    case 'overview:success':
+    case 'overview:failure':
+      if (event.token !== state.overviewOp.token || !state.overviewOp.pending) return state;
+      return {...state, overview: event.type === 'overview:success' ? {key: selectionKey(state.intent), intent: state.intent, data: event.data} : state.overview,
+        overviewOp: {...operation(event.token), error: event.type === 'overview:failure' ? event.error : null}};
+    case 'overview:finish':
+      if (event.token !== state.overviewOp.token) return state;
+      return {...state, overviewOp: {...state.overviewOp, pending: false}};
     case 'intent': return changeIntent(state, normalizeIntent({...state.intent, ...event.patch, page: 1}), false);
     case 'address': return changeIntent(state, normalizeIntent(event.intent));
     case 'restore': return changeIntent(state, normalizeIntent({...event.view, page: 1}), false);
