@@ -8,6 +8,28 @@ Copy or bookmark the browser address to share the applied query, including sorti
 
 Named views persist the applied search, facets, dates, sorting, and page size in browser localStorage. Opening a view applies its selections together and returns to page one. Storage failures are visible and exploration remains available.
 
+Service attention loads `/api/overview` independently, using the same search,
+facets and inclusive UTC dates as the list. Cards compare all matching
+incidents per service: total, unresolved (open/in progress), critical + high
+(any status), and average elapsed resolution hours for resolved incidents
+only. No resolved incidents means Unavailable. Cards sort by unresolved
+descending then service name. Page/size/sort changes preserve the overview.
+During a changed selection, previous measures are labeled with their original
+filters. Token ownership rejects obsolete responses, errors and cleanup;
+the overview has its own loading message and current-selection Retry.
+
+Personal triage uses `triage.js` and a separate localStorage key, never the
+URL, saved views or backend. Add/remove in full details, edit up to 1,000
+plain-text characters per note in the workspace, or reopen canonical details
+without changing results. Duplicate adds preserve the original note/order;
+removal deletes the note. Recognition labels are snapshots from addition.
+The list survives reload on the same origin unless browser data is cleared
+or storage is unavailable. Malformed data is ignored with a visible message;
+storage failures preserve this visit's in-memory list and notes and explain
+that reload persistence is not guaranteed. All notes and incident text are
+rendered as text. Cards and triage controls fit a narrow screen, with native
+keyboard controls and visible focus.
+
 The native details dialog supports keyboard dismissal, exposes every incident field as text, and restores focus to the incident on return. Results, detail sessions, and exports have separate ownership tokens. Each completion, error, and cleanup is gated; changed selections invalidate details and export downloads. Cancellation helps save work but tokens provide correctness. Download object URLs are released.
 
 Run the repository's exact verification command from the checkout:

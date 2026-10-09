@@ -28,6 +28,20 @@
       <div class="section-heading"><div><p class="eyebrow">All matching incidents</p><h2 id="result-title">Results overview</h2></div><span id="freshness" class="muted"></span></div>
       <div id="active-filters" class="chips" aria-label="Active selections"></div>
       <div id="summary" class="summary"></div>
+      <section id="service-overview" class="workspace" aria-labelledby="overview-title">
+        <h3 id="overview-title">Service attention</h3>
+        <p class="muted">Across all matching incidents: unresolved means open or in progress; critical + high counts both severities, including resolved incidents. Average resolution is hours from opening to resolution, for resolved incidents only. Unavailable means none have resolved. Services with most unresolved incidents appear first, then by name.</p>
+        <p id="overview-selection" class="muted"></p>
+        <p id="overview-freshness" role="status"></p>
+        <div id="overview-message" class="operation-message" role="status"></div>
+        <div id="service-cards" class="service-cards"></div>
+      </section>
+      <section id="triage" class="workspace" aria-labelledby="triage-title">
+        <h3 id="triage-title" tabindex="-1">Personal triage</h3>
+        <p class="muted">Add from complete incident details. Kept in the order you add them, independently of search. Incident labels reflect when you added them; reopen details for the canonical record.</p>
+        <p id="triage-message" class="muted" role="status"></p>
+        <ul id="triage-list"></ul>
+      </section>
       <section class="chart" aria-labelledby="chart-title"><h3 id="chart-title">Opened by day · UTC</h3><p class="muted">Counts cover the entire matching result.</p><div id="chart-bars" aria-hidden="true"></div><details><summary>Read daily counts</summary><p id="chart-text"></p></details></section>
       <div class="table-controls"><div><label for="sort">Sort by</label><select id="sort"><option value="openedAt">Opened date</option><option value="severity">Severity</option></select></div><div><label for="direction">Order</label><select id="direction"><option value="desc">Newest / highest first</option><option value="asc">Oldest / lowest first</option></select></div><div><label for="page-size">Rows per page</label><select id="page-size"><option value="25">25</option><option value="50">50</option></select></div></div>
       <div id="result-message" class="operation-message"></div>

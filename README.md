@@ -17,6 +17,10 @@ Saved views remember the search, facets, UTC dates, sort direction and page size
 
 Download CSV exports all matching incidents in the selected order. The header contains all eleven dataset fields. Null `resolvedAt` values become empty cells; `tags` contains a JSON array of strings. CSV uses CRLF record separators and double-quoted cells with doubled internal quotes where needed, preserving commas, quotes and description line breaks.
 
+Service attention compares services across the entire filtered result using the local `/api/overview` endpoint. It shows incident count, unresolved count (open or in progress), critical + high count (any status), and average hours from opening to resolution for resolved incidents only. If none resolved, the average is **Unavailable**. Services sort by unresolved count descending, then name. Pagination, page size and incident sorting do not change these measures. The overview labels the requested selection and any previous measures during loading or failure; its Retry uses the current filters independently of the list.
+
+Personal triage sits above the incident list. Open full details to add or remove an incident; reopen details from triage without changing search results. Incidents appear once, in addition order. Notes are plain text, up to 1,000 characters, and save as you type. Removing an incident deletes its note. Membership, recognition labels and notes use a separate localStorage key (`incident-explorer.triage.v1`), independent of saved views and addresses. Labels are snapshots from addition; full details always come from the canonical backend. Triage is personal to this browser and origin, with no account, synchronization or external requests. Clearing browser data removes it. If stored triage is malformed it is ignored with a visible explanation, and a new list can be saved. If storage reads or writes fail, exploration and this visit's triage remain usable, but persistence across reloads is not guaranteed.
+
 For verification in the supplied qualification environment, run these commands in order from this checkout:
 
 ```sh
@@ -26,6 +30,8 @@ npm test
 ```
 
 The preparation command installs the pinned tooling if needed and regenerates/checks the canonical dataset. The smoke probe qualifies real sandbox-enabled Chromium and loopback HTTP only. `npm test` repeats preparation and discovers component and integration tests with Node's built-in runner. Integration tests compare actual HTTP and browser results against an independent oracle built from the canonical data, exercise the startup command, and cover saved views, keyboard and phone layouts, loading, empty results, connection failure/retry and overlapping intent transitions. They start owned loopback servers and close servers, browsers and subprocesses in cleanup paths. The browser suite uses the alias-relative installed browser and library paths described below; profiles, downloads and other runtime evidence stay under ignored `.runtime/`.
+
+The additional workspace checks cover service measures through actual HTTP (including filtered matches across pages, unavailable averages and empty results), and real Chromium overview updates, overlapping selections, server outage/retry, triage notes/reload/reopening/removal, denied or malformed storage, and keyboard/phone layouts. Existing regression suites remain part of the same `npm test` command. All application and verification servers bind loopback, and tests close their owned browsers and servers.
 
 ## Exact shared commands
 
