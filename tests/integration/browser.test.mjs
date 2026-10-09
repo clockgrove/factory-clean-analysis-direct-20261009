@@ -59,7 +59,7 @@ test('real Chromium: correctness, persisted views, keyboard, phone and overlappi
       TMPDIR: '.runtime/browser-tmp', TMP: '.runtime/browser-tmp', TEMP: '.runtime/browser-tmp'
     }});
     context = await browser.newContext({acceptDownloads: true});
-    const page = await context.newPage(); page.setDefaultTimeout(10000);
+    let page = await context.newPage(); page.setDefaultTimeout(10000);
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     const cdp = await context.newCDPSession(page);
     const throttle = latency => cdp.send('Network.emulateNetworkConditions', {offline: false, latency, downloadThroughput: -1, uploadThroughput: -1});
@@ -69,6 +69,9 @@ test('real Chromium: correctness, persisted views, keyboard, phone and overlappi
       await expect(page.locator('#freshness')).toHaveText('Current selections');
       const {items, summary} = expected(options);
       const size = options.pageSize || 25, n = options.page || 1;
+      const address = new URL(page.url()).searchParams;
+      for (const [key, fallback] of Object.entries({q: '', from: '', to: '', sort: 'openedAt', direction: 'desc', page: 1, pageSize: 25})) assert.equal(address.get(key) ?? '', String(options[key] ?? fallback), `address ${key}`);
+      for (const facet of ['service', 'status', 'severity']) assert.deepEqual(address.getAll(facet), [...(options[facet] || [])].sort());
       assert.deepEqual(await page.locator('#rows button').evaluateAll(nodes => nodes.map(x => x.dataset.incident)), items.slice((n - 1) * size, n * size).map(x => x.id));
       assert.deepEqual(await page.locator('#summary strong').allTextContents(), [summary.total, summary.unresolved, summary.highSeverity].map(x => x.toLocaleString()));
       await expect(page.locator('#chart-text')).toHaveText(summary.openedByDay.length ? summary.openedByDay.map(d => `${d.date}: ${d.count} incident${d.count === 1 ? '' : 's'}`).join('; ') : 'No matching incidents were opened in this range.');
@@ -114,11 +117,95 @@ test('real Chromium: correctness, persisted views, keyboard, phone and overlappi
       for (const facet of ['status', 'severity']) for (const value of options[facet]) await page.locator(`#${facet}`).getByLabel(human(value), {exact: true}).check();
       await page.getByLabel('From (inclusive)').fill(options.from); await page.getByLabel('To (inclusive)').fill(options.to); await check(options);
       await page.getByLabel('Name this view').fill('Billing retry'); await page.getByRole('button', {name: 'Save current view'}).click();
-      await page.reload(); await check(); await page.getByRole('button', {name: 'Open saved view Billing retry'}).click(); await check(options);
+      await page.reload(); await check(options); await page.getByRole('button', {name: 'Open saved view Billing retry'}).click(); await check(options);
       await expect(page.getByLabel('Search ID, title or description')).toHaveValue('retry'); await expect(page.locator('#service').getByLabel('Billing', {exact: true})).toBeChecked();
       for (const facet of ['service', 'status', 'severity']) for (const value of options[facet]) await expect(page.locator(`#${facet}`).getByLabel(human(value), {exact: true})).toBeChecked();
       for (const [label, value] of [['From (inclusive)', options.from], ['To (inclusive)', options.to], ['Sort by', options.sort], ['Order', options.direction], ['Rows per page', '50']]) await expect(page.getByLabel(label, {exact: true})).toHaveValue(value);
-      await page.getByRole('button', {name: 'Delete saved view Billing retry'}).click(); await page.reload(); await check(); await expect(page.locator('#views')).toHaveText('No saved views yet.');
+      await page.getByRole('button', {name: 'Delete saved view Billing retry'}).click(); await page.reload(); await check(options); await expect(page.locator('#views')).toHaveText('No saved views yet.');
+    });
+    await t.test('share every applied field and later page through reload, fresh tab and history', async () => {
+      const options = {q: 'incident', service: ['Billing', 'Notifications'], status: ['open', 'in_progress'], severity: ['critical', 'high'], from: '2026-04-01', to: '2026-06-29', sort: 'severity', direction: 'asc', pageSize: 25, page: 2};
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(options)) for (const item of Array.isArray(value) ? value : [value]) params.append(key, item);
+      const address = `http://127.0.0.1:${port}/?${params}#results`;
+      const controls = async () => {
+        for (const [id, key] of [['search', 'q'], ['from', 'from'], ['to', 'to'], ['sort', 'sort'], ['direction', 'direction'], ['page-size', 'pageSize']]) await expect(page.locator(`#${id}`)).toHaveValue(String(options[key]));
+        for (const facet of ['service', 'status', 'severity']) assert.deepEqual(await page.locator(`#${facet} input:checked`).evaluateAll(xs => xs.map(x => x.value).sort()), [...options[facet]].sort());
+      };
+      await page.goto(address); await check(options); await controls();
+      const canonical = page.url(); assert.equal(new URL(canonical).hash, '#results');
+      await page.reload(); await check(options); await controls(); assert.equal(page.url(), canonical);
+      const original = page; const fresh = await context.newPage(); fresh.setDefaultTimeout(10000);
+      try { page = fresh; await page.goto(canonical); await check(options); await controls(); await expect(page.locator('#detail')).not.toBeVisible(); }
+      finally { page = original; await fresh.close(); }
+      const historyLength = await page.evaluate(() => history.length);
+      await search('incident'); await check({...options, page: 1});
+      assert.equal(await page.evaluate(() => history.length), historyLength + 1);
+      await search('incident'); await check({...options, page: 1});
+      assert.equal(await page.evaluate(() => history.length), historyLength + 1);
+      await page.locator('#search').fill('discard this draft');
+      await page.evaluate(() => history.back()); await check(options); await controls(); await expect(page.locator('#search')).toBeFocused();
+      await page.evaluate(() => history.forward()); await check({...options, page: 1});
+      await page.goto(`http://127.0.0.1:${port}/`); await check();
+    });
+    await t.test('malformed links normalize before HTTP; encoded text and repeated facets retain meaning', async () => {
+      const requests = [];
+      const observe = request => { if (request.url().includes('/api/incidents?')) requests.push(request.url()); };
+      page.on('request', observe);
+      try {
+        for (const [query, options] of [
+          ['q=a&q=b&sort=id&direction=down&page=1e2&pageSize=5e1&from=2026-02-29&to=2026-04-31&unknown=yes', {}],
+          ['from=1900-02-29&to=2026-13-01&page=9007199254740992', {}],
+          ['from=2026-04-01&from=2026-04-01&to=2026-06-29&to=2026-06-29&page=-1&pageSize=100', {}],
+          ['page=1.5', {}],
+          ['from=2026-06-01&to=2026-04-01&page=0', {}],
+          ['sort=severity&sort=severity&direction=asc&direction=asc&pageSize=50&pageSize=50&page=2&page=2', {}],
+          ['from=2000-02-29&to=2000-02-29', {from: '2000-02-29', to: '2000-02-29'}],
+          ['q=a%2Bb%20%26%20%25%20%23%20caf%C3%A9&service=Search&service=Billing&service=Search&service=bad&status=open&status=resolved', {q: 'a+b & % # café', service: ['Billing', 'Search'], status: ['open', 'resolved']}]
+        ]) {
+          await page.goto(`http://127.0.0.1:${port}/?${query}`); await check(options);
+          const actual = new URL(requests.at(-1)).searchParams;
+          assert.equal(actual.has('unknown'), false);
+          for (const key of ['q', 'from', 'to', 'sort', 'direction', 'page', 'pageSize']) assert.ok(actual.getAll(key).length <= 1);
+          assert.equal(new URL(page.url()).search, new URL(requests.at(-1)).search);
+          await expect(page.locator('#search')).toHaveValue(options.q || '');
+        }
+        await page.goto(`http://127.0.0.1:${port}/?page=999999`); await check({page: 96});
+        assert.equal(new URL(page.url()).searchParams.get('page'), '96');
+      } finally { page.off('request', observe); }
+      await page.goto(`http://127.0.0.1:${port}/`); await check();
+    });
+    await t.test('Back during pending HTTP, current failure/retry, details and obsolete export cleanup', async () => {
+      await search('Uploads'); await check({q: 'Uploads'});
+      await throttle(900);
+      const pending = page.waitForRequest(r => r.url().includes('/api/incidents?') && new URL(r.url()).searchParams.get('q') === 'Billing');
+      await search('Billing'); await pending;
+      const snapshot = await page.locator('#summary').textContent();
+      await stop();
+      await page.evaluate(() => history.back());
+      await expect(page.locator('#search')).toHaveValue('Uploads');
+      assert.equal(await page.locator('#summary').textContent(), snapshot);
+      await expect(page.locator('#result-message button')).toHaveText('Retry');
+      await expect(page.locator('#results')).toHaveAttribute('aria-busy', 'false');
+      await start(); await throttle(0);
+      const length = await page.evaluate(() => history.length);
+      await page.locator('#result-message button').click(); await check({q: 'Uploads'});
+      assert.equal(await page.evaluate(() => history.length), length);
+      await page.evaluate(() => history.forward()); await check({q: 'Billing'});
+      await page.locator('#rows button').first().click(); await detail(expected({q: 'Billing'}).items[0]);
+      await page.evaluate(() => history.back()); await expect(page.locator('#detail')).not.toBeVisible(); await check({q: 'Uploads'});
+      const downloads = []; const download = value => downloads.push(value); page.on('download', download);
+      try {
+        await throttle(900);
+        const exporting = page.waitForRequest(r => r.url().includes('/api/export.csv?'));
+        await page.locator('#export').click(); await exporting;
+        await page.evaluate(() => history.forward()); await check({q: 'Billing'});
+        await expect(page.locator('#export-message')).toHaveText('');
+        assert.equal(downloads.length, 0);
+      } finally { page.off('download', download); await throttle(0); }
+      const ready = page.waitForEvent('download'); await page.locator('#export').click();
+      assert.deepEqual(parseCSV(await readFile(await (await ready).path(), 'utf8')), csvRows(expected({q: 'Billing'}).items));
+      await clear(); await check();
     });
     await t.test('keyboard details expose all fields, focus and results return; phone controls fit', async () => {
       await search('inc-000001'); await check({q: 'inc-000001'});
